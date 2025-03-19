@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doanh số bán hàng theo Tháng</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .bar { fill-opacity: 0.8; }
+        .bar:hover { fill-opacity: 1; }
+        .axis-label { font-size: 14px; }
+        .legend rect { stroke-width: 1; stroke: #000; }
+    </style>
+</head>
+<body>
+    <h2>Doanh số bán hàng theo Tháng</h2>
+    <svg width="1000" height="500"></svg>
+
+    <script>
+        d3.csv("data_ggsheet - data.csv").then(function(data) {
+            // Chuyển đổi dữ liệu sang dạng ngày tháng
+            data.forEach(d => {
+                d["Thời gian tạo đơn"] = new Date(d["Thời gian tạo đơn"]);
+                d["Thành tiền"] = +d["Thành tiền"];
+                d["Tháng"] = "T" + (d["Thời gian tạo đơn"].getMonth() + 1).toString().padStart(2, "0");
+            });
+
+            // Tổng hợp doanh số theo tháng
+            let summary = d3.rollup(
+                data,
+                v => d3.sum(v, d => d["Thành tiền"]),
+                d => d["Tháng"]
+            );
+
+            let processedData = Array.from(summary, ([month, total]) => ({ "Tháng": month, "Thành tiền": total }));
+
+            // Sắp xếp tháng theo thứ tự từ T01 đến T12
+            const monthOrder = Array.from({ length: 12 }, (_, i) => `T${String(i + 1).padStart(2, "0")}`);
+            processedData.sort((a, b) => monthOrder.indexOf(a["Tháng"]) - monthOrder.indexOf(b["Tháng"]));
+
+            // Cấu hình SVG
+            const margin = { top: 40, right: 150, bottom: 50, left: 80 };
+            const width = 1000 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+            const svg = d3.select("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo
+            const x = d3.scaleBand()
+                .domain(monthOrder)
+                .range([0, width])
+                .padding(0.2);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(processedData, d => d["Thành tiền"])]).nice()
+                .range([height, 0]);
+
+            const color = d3.scaleOrdinal(d3.schemeCategory10)
+                .domain(monthOrder);
+
+            // Vẽ trục
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x));
+            
+            svg.append("g")
+                .call(d3.axisLeft(y).tickFormat(d => `${d / 1e6}M`));
+
+            // Vẽ thanh bar
+            svg.selectAll(".bar")
+                .data(processedData)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => x(d["Tháng"]))
+                .attr("y", d => y(d["Thành tiền"]))
+                .attr("width", x.bandwidth())
+                .attr("height", d => height - y(d["Thành tiền"]))
+                .attr("fill", d => color(d["Tháng"]));
+
+            // Hiển thị giá trị trên thanh bar
+            svg.selectAll(".label")
+                .data(processedData)
+                .enter().append("text")
+                .attr("class", "label")
+                .attr("x", d => x(d["Tháng"]) + x.bandwidth() / 2)
+                .attr("y", d => y(d["Thành tiền"]) - 5)
+                .attr("text-anchor", "middle")
+                .text(d => `${(d["Thành tiền"] / 1e6).toFixed(0)}M`)
+                .style("font-size", "12px");
+
+            // Thêm chú giải màu (Legend) bên phải
+            const legend = svg.append("g")
+                .attr("transform", `translate(${width + 20}, 0)`);
+
+            legend.selectAll(".legend-item")
+                .data(monthOrder)
+                .enter().append("g")
+                .attr("class", "legend-item")
+                .attr("transform", (d, i) => `translate(0, ${i * 20})`)
+                .each(function(d) {
+                    d3.select(this).append("rect")
+                        .attr("width", 15)
+                        .attr("height", 15)
+                        .attr("fill", color(d));
+                    d3.select(this).append("text")
+                        .attr("x", 20)
+                        .attr("y", 12)
+                        .text(d)
+                        .style("font-size", "12px")
+                        .attr("alignment-baseline", "middle");
+                });
+        }).catch(error => console.error("Lỗi tải CSV:", error));
+    </script>
+</body>
+</html>

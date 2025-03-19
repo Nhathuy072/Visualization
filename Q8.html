@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xác suất bán hàng theo Nhóm hàng</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        .bar { fill-opacity: 0.85; transition: fill-opacity 0.3s; }
+        .bar:hover { fill-opacity: 1; }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.75);
+            color: white;
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 5px;
+            display: none;
+        }
+        text { font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h2>Xác suất bán hàng theo Nhóm hàng</h2>
+    <div class="tooltip"></div>
+    <svg width="900" height="500"></svg>
+
+    <script>
+        d3.csv("data_ggsheet - data.csv").then(function(data) {
+            // Chuyển đổi tháng sang định dạng T01, T02...
+            data.forEach(d => {
+                let date = new Date(d["Thời gian tạo đơn"]);
+                let month = (date.getMonth() + 1).toString().padStart(2, '0');
+                d["Tháng"] = `T${month}`;
+                d["Nhóm hàng"] = `[${d["Mã nhóm hàng"]}] ${d["Tên nhóm hàng"]}`;
+            });
+
+            // Đếm số đơn hàng theo nhóm hàng & tháng
+            let orderCountByCategory = d3.rollup(
+                data,
+                v => new Set(v.map(d => d["Mã đơn hàng"])).size,
+                d => d["Tháng"],
+                d => d["Nhóm hàng"]
+            );
+
+            // Tính tổng số đơn hàng theo từng tháng
+            let totalOrdersByMonth = d3.rollup(
+                data,
+                v => new Set(v.map(d => d["Mã đơn hàng"])).size,
+                d => d["Tháng"]
+            );
+
+            // Chuẩn bị dữ liệu với xác suất
+            let processedData = [];
+            orderCountByCategory.forEach((categories, month) => {
+                categories.forEach((orderCount, category) => {
+                    processedData.push({
+                        "Tháng": month,
+                        "Nhóm hàng": category,
+                        "Số đơn": orderCount,
+                        "Xác suất": orderCount / totalOrdersByMonth.get(month)
+                    });
+                });
+            });
+
+            // Sắp xếp theo tháng
+            processedData.sort((a, b) => a["Tháng"].localeCompare(b["Tháng"]));
+
+            const margin = { top: 40, right: 220, bottom: 50, left: 100 };
+            const width = 900 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+
+            // Tạo SVG
+            const svg = d3.select("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo trục X (tháng)
+            const x = d3.scalePoint()
+                .domain([...new Set(processedData.map(d => d["Tháng"]))])
+                .range([0, width]);
+
+            // Thang đo trục Y (xác suất)
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(processedData, d => d["Xác suất"])]).nice()
+                .range([height, 0]);
+
+            // Thang màu cho nhóm hàng
+            const color = d3.scaleOrdinal(d3.schemeTableau10)
+                .domain([...new Set(processedData.map(d => d["Nhóm hàng"]))]);
+
+            // Trục X
+            svg.append("g")
+                .attr("transform", `translate(0, ${height})`)
+                .call(d3.axisBottom(x));
+
+            // Trục Y
+            svg.append("g")
+                .call(d3.axisLeft(y).tickFormat(d3.format(".0%")));
+
+            // Nhóm dữ liệu theo nhóm hàng
+            let nestedData = d3.groups(processedData, d => d["Nhóm hàng"]);
+
+            // Vẽ đường
+            nestedData.forEach(([nhomHang, values]) => {
+                svg.append("path")
+                    .datum(values)
+                    .attr("fill", "none")
+                    .attr("stroke", color(nhomHang))
+                    .attr("stroke-width", 2)
+                    .attr("d", d3.line()
+                        .x(d => x(d["Tháng"]))
+                        .y(d => y(d["Xác suất"])))
+                    .on("mouseover", () => d3.select(event.target).attr("stroke-width", 4))
+                    .on("mouseout", () => d3.select(event.target).attr("stroke-width", 2));
+            });
+
+            // Thêm tiêu đề biểu đồ
+            svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", -10)
+                .attr("text-anchor", "middle")
+                .style("font-size", "16px")
+                .text("Xác suất bán hàng theo Nhóm hàng theo tháng");
+        }).catch(error => console.error("Lỗi tải CSV:", error));
+    </script>
+</body>
+</html>

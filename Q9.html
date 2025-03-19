@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xác suất bán hàng theo Mặt hàng trong Nhóm hàng</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        .chart-container { display: flex; flex-wrap: wrap; justify-content: center; }
+        .chart { display: flex; align-items: flex-start; margin: 20px; }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.75);
+            color: white;
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 5px;
+            display: none;
+        }
+        text { font-size: 12px; }
+        .legend { margin-left: 20px; text-align: left; }
+        .legend-item { display: flex; align-items: center; margin: 4px 0; }
+        .legend-color { width: 12px; height: 12px; margin-right: 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h2>Xác suất bán hàng theo Mặt hàng trong Nhóm hàng</h2>
+    <div class="tooltip"></div>
+    <div class="chart-container" id="charts"></div>
+    <script>
+        d3.csv("data_ggsheet - data.csv").then(function(data) {
+            // Xây dựng tên Mặt hàng và Nhóm hàng
+            data.forEach(d => {
+                d["Mặt hàng"] = `[${d["Mã mặt hàng"]}] ${d["Tên mặt hàng"]}`;
+                d["Nhóm hàng"] = `[${d["Mã nhóm hàng"]}] ${d["Tên nhóm hàng"]}`;
+            });
+
+            // Danh sách 5 nhóm hàng cần vẽ
+            const groups = ["[BOT] Bột", "[SET] Set trà", "[THO] Trà hoa", "[TMX] Trà mix", "[TTC] Trà củ, quả sấy"];
+
+            // Lặp qua từng nhóm hàng
+            groups.forEach(group => {
+                let groupData = data.filter(d => d["Nhóm hàng"] === group);
+
+                // Tính số đơn hàng theo mặt hàng
+                let orderCountByItem = d3.rollup(
+                    groupData,
+                    v => new Set(v.map(d => d["Mã đơn hàng"])).size,
+                    d => d["Mặt hàng"]
+                );
+
+                // Tổng số đơn hàng của nhóm hàng
+                let totalOrders = d3.sum(Array.from(orderCountByItem.values()));
+
+                // Chuẩn bị dữ liệu với xác suất
+                let processedData = Array.from(orderCountByItem, ([matHang, soDon]) => ({
+                    "Mặt hàng": matHang,
+                    "Số đơn": soDon,
+                    "Xác suất": soDon / totalOrders
+                })).sort((a, b) => b["Xác suất"] - a["Xác suất"]);
+
+                // Tạo container SVG cho mỗi nhóm hàng
+                let container = d3.select("#charts").append("div").attr("class", "chart");
+
+                let chartDiv = container.append("div");
+                chartDiv.append("h3").text(group);
+                let svg = chartDiv.append("svg").attr("width", 500).attr("height", 300);
+
+                const margin = { top: 40, right: 20, bottom: 50, left: 200 };
+                const width = 400 - margin.left - margin.right;
+                const height = 300 - margin.top - margin.bottom;
+
+                let chart = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+                // Thang đo
+                let y = d3.scaleBand().domain(processedData.map(d => d["Mặt hàng"])).range([0, height]).padding(0.2);
+                let x = d3.scaleLinear().domain([0, d3.max(processedData, d => d["Xác suất"])]).range([0, width]);
+                let color = d3.scaleOrdinal(d3.schemeCategory10).domain(processedData.map(d => d["Mặt hàng"]));
+
+                // Trục
+                chart.append("g").call(d3.axisLeft(y));
+                chart.append("g").attr("transform", `translate(0, ${height})`).call(d3.axisBottom(x).tickFormat(d3.format(".0%")));
+
+                // Tooltip
+                let tooltip = d3.select(".tooltip");
+
+                // Vẽ cột
+                chart.selectAll(".bar")
+                    .data(processedData)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("y", d => y(d["Mặt hàng"]))
+                    .attr("x", 0)
+                    .attr("width", 0)
+                    .attr("height", y.bandwidth())
+                    .attr("fill", d => color(d["Mặt hàng"]))
+                    .on("mouseover", (event, d) => {
+                        tooltip.style("display", "block")
+                               .html(`<strong>${d["Mặt hàng"]}</strong><br>Số đơn: ${d["Số đơn"]}<br>Xác suất: ${d3.format(".1%") (d["Xác suất"])}`)
+                               .style("left", (event.pageX + 10) + "px")
+                               .style("top", (event.pageY - 20) + "px");
+                    })
+                    .on("mousemove", (event) => {
+                        tooltip.style("left", (event.pageX + 10) + "px")
+                               .style("top", (event.pageY - 20) + "px");
+                    })
+                    .on("mouseout", () => tooltip.style("display", "none"))
+                    .transition()
+                    .duration(1000)
+                    .attr("width", d => x(d["Xác suất"]));
+
+                // Hiển thị giá trị trên thanh
+                chart.selectAll(".text")
+                    .data(processedData)
+                    .enter().append("text")
+                    .attr("x", 0)
+                    .attr("y", d => y(d["Mặt hàng"]) + y.bandwidth() / 2)
+                    .attr("dy", "0.35em")
+                    .style("fill", "black")
+                    .text(d => d3.format(".1%") (d["Xác suất"]))
+                    .transition()
+                    .duration(1000)
+                    .attr("x", d => x(d["Xác suất"]) + 5);
+
+                // Thêm legend
+                let legend = container.append("div").attr("class", "legend");
+                processedData.forEach(d => {
+                    let legendItem = legend.append("div").attr("class", "legend-item");
+                    legendItem.append("div").attr("class", "legend-color").style("background", color(d["Mặt hàng"]));
+                    legendItem.append("span").text(d["Mặt hàng"]);
+                });
+            });
+        }).catch(error => console.error("Lỗi tải CSV:", error));
+    </script>
+</body>
+</html>

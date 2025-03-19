@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doanh số trung bình theo Ngày trong tuần</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .bar { fill-opacity: 0.8; }
+        .bar:hover { fill-opacity: 1; }
+        .axis-label { font-size: 14px; }
+        .legend rect { stroke-width: 1; stroke: #000; }
+    </style>
+</head>
+<body>
+    <h2>Doanh số trung bình theo Ngày trong tuần</h2>
+    <svg width="1000" height="500"></svg>
+
+    <script>
+        d3.csv("data_ggsheet - data.csv").then(function(data) {
+            // Chuyển đổi dữ liệu
+            const daysMapping = {
+                "Monday": "Thứ Hai",
+                "Tuesday": "Thứ Ba",
+                "Wednesday": "Thứ Tư",
+                "Thursday": "Thứ Năm",
+                "Friday": "Thứ Sáu",
+                "Saturday": "Thứ Bảy",
+                "Sunday": "Chủ Nhật"
+            };
+            
+            data.forEach(d => {
+                d["Thời gian tạo đơn"] = new Date(d["Thời gian tạo đơn"]);
+                d["Thành tiền"] = +d["Thành tiền"];
+                d["Ngày trong tuần"] = daysMapping[d["Thời gian tạo đơn"].toLocaleDateString('en-US', { weekday: 'long' })];
+                d["Tuần"] = d["Thời gian tạo đơn"].getFullYear() + "-" + d3.timeFormat("%U")(d["Thời gian tạo đơn"]);
+            });
+
+            // Tổng hợp doanh thu theo ngày trong tuần và tuần
+            let summary = d3.rollup(
+                data,
+                v => d3.sum(v, d => d["Thành tiền"]),
+                d => d["Tuần"],
+                d => d["Ngày trong tuần"]
+            );
+
+            let weeklyData = Array.from(summary, ([week, days]) =>
+                Array.from(days, ([day, total]) => ({ "Tuần": week, "Ngày trong tuần": day, "Thành tiền": total }))
+            ).flat();
+
+            // Tính trung bình doanh số theo ngày trong tuần
+            let avgData = d3.rollup(
+                weeklyData,
+                v => d3.mean(v, d => d["Thành tiền"]),
+                d => d["Ngày trong tuần"]
+            );
+
+            let processedData = Array.from(avgData, ([day, total]) => ({ "Ngày trong tuần": day, "Thành tiền": total }));
+
+            // Sắp xếp theo thứ tự ngày trong tuần
+            const dayOrder = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"];
+            processedData.sort((a, b) => dayOrder.indexOf(a["Ngày trong tuần"]) - dayOrder.indexOf(b["Ngày trong tuần"]));
+
+            // Cấu hình SVG
+            const margin = { top: 40, right: 200, bottom: 50, left: 100 };
+            const width = 1000 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+            const svg = d3.select("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo
+            const x = d3.scaleBand()
+                .domain(dayOrder)
+                .range([0, width])
+                .padding(0.2);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(processedData, d => d["Thành tiền"])]).nice()
+                .range([height, 0]);
+
+            const color = d3.scaleOrdinal(d3.schemeTableau10).domain(dayOrder);
+
+            // Vẽ trục
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x));
+            
+            svg.append("g")
+                .call(d3.axisLeft(y).tickFormat(d => `${d / 1e6}M`));
+
+            // Vẽ thanh bar
+            svg.selectAll(".bar")
+                .data(processedData)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => x(d["Ngày trong tuần"]))
+                .attr("y", d => y(d["Thành tiền"]))
+                .attr("width", x.bandwidth())
+                .attr("height", d => height - y(d["Thành tiền"]))
+                .attr("fill", d => color(d["Ngày trong tuần"]));
+
+
+            // Thêm legend
+            const legend = svg.append("g")
+                .attr("transform", `translate(${width + 20}, 0)`);
+
+            dayOrder.forEach((day, i) => {
+                let legendRow = legend.append("g")
+                    .attr("transform", `translate(0, ${i * 20})`);
+
+                legendRow.append("rect")
+                    .attr("width", 15)
+                    .attr("height", 15)
+                    .attr("fill", color(day));
+
+                legendRow.append("text")
+                    .attr("x", 20)
+                    .attr("y", 12)
+                    .text(day)
+                    .style("font-size", "12px")
+                    .attr("alignment-baseline", "middle");
+            });
+        }).catch(error => console.error("Lỗi tải CSV:", error));
+    </script>
+</body>
+</html>

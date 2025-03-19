@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xác suất bán hàng theo Nhóm hàng</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        .bar { fill-opacity: 0.85; transition: fill-opacity 0.3s; }
+        .bar:hover { fill-opacity: 1; }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.75);
+            color: white;
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 5px;
+            display: none;
+        }
+        text { font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h2>Xác suất bán hàng theo Nhóm hàng</h2>
+    <div class="tooltip"></div>
+    <svg width="900" height="500"></svg>
+
+    <script>
+        d3.csv("data_ggsheet - data.csv").then(function(data) {
+            // Ghép Mã nhóm hàng + Tên nhóm hàng giống Python
+            data.forEach(d => {
+                d["Nhóm hàng"] = `[${d["Mã nhóm hàng"]}] ${d["Tên nhóm hàng"]}`;
+            });
+
+            // Tính số đơn hàng theo nhóm hàng
+            let orderCountByCategory = d3.rollup(
+                data,
+                v => new Set(v.map(d => d["Mã đơn hàng"])).size,
+                d => d["Nhóm hàng"]
+            );
+
+            // Tính tổng số đơn hàng
+            let totalOrders = d3.sum(Array.from(orderCountByCategory.values()));
+
+            // Chuẩn bị dữ liệu với xác suất
+            let processedData = Array.from(orderCountByCategory, ([nhomHang, soDon]) => ({
+                "Nhóm hàng": nhomHang,
+                "Số đơn": soDon,
+                "Xác suất": soDon / totalOrders
+            }));
+
+            // Sắp xếp theo xác suất giảm dần
+            processedData.sort((a, b) => b["Xác suất"] - a["Xác suất"]);
+
+            const margin = { top: 40, right: 220, bottom: 50, left: 250 };
+            const width = 900 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+
+            // Tạo SVG
+            const svg = d3.select("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo trục Y
+            const y = d3.scaleBand()
+                .domain(processedData.map(d => d["Nhóm hàng"]))
+                .range([0, height])
+                .padding(0.2);
+
+            // Thang đo trục X
+            const x = d3.scaleLinear()
+                .domain([0, d3.max(processedData, d => d["Xác suất"])])
+                .range([0, width]);
+
+            // Thang màu
+            const color = d3.scaleSequential(d3.interpolateSpectral)
+                .domain([0, processedData.length]);
+
+            // Tooltip
+            const tooltip = d3.select(".tooltip");
+
+            // Trục Y
+            svg.append("g")
+                .call(d3.axisLeft(y));
+
+            // Trục X
+            svg.append("g")
+                .attr("transform", `translate(0, ${height})`)
+                .call(d3.axisBottom(x).tickFormat(d3.format(".0%")));
+
+            // Vẽ thanh
+            svg.selectAll(".bar")
+                .data(processedData)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("y", d => y(d["Nhóm hàng"]))
+                .attr("x", 0)
+                .attr("width", 0) // Animation
+                .attr("height", y.bandwidth())
+                .attr("fill", (d, i) => color(i))
+                .on("mouseover", (event, d) => {
+                    tooltip.style("display", "block")
+                           .html(`<strong>${d["Nhóm hàng"]}</strong><br>Số đơn: ${d["Số đơn"]}<br>Xác suất: ${d3.format(".1%") (d["Xác suất"])}`)
+                           .style("left", (event.pageX + 10) + "px")
+                           .style("top", (event.pageY - 20) + "px");
+                })
+                .on("mousemove", (event) => {
+                    tooltip.style("left", (event.pageX + 10) + "px")
+                           .style("top", (event.pageY - 20) + "px");
+                })
+                .on("mouseout", () => tooltip.style("display", "none"))
+                .transition()
+                .duration(1000)
+                .attr("width", d => x(d["Xác suất"]));
+
+            // Hiển thị giá trị trên thanh
+            svg.selectAll(".text")
+                .data(processedData)
+                .enter().append("text")
+                .attr("x", 0)
+                .attr("y", d => y(d["Nhóm hàng"]) + y.bandwidth() / 2)
+                .attr("dy", "0.35em")
+                .style("fill", "black")
+                .text(d => d3.format(".1%") (d["Xác suất"]))
+                .transition()
+                .duration(1000)
+                .attr("x", d => x(d["Xác suất"]) + 5);
+
+            // Tiêu đề biểu đồ
+            svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", -10)
+                .attr("text-anchor", "middle")
+                .style("font-size", "16px")
+                .text("Xác suất bán hàng theo Nhóm hàng");
+        }).catch(error => console.error("Lỗi tải CSV:", error));
+    </script>
+</body>
+</html>

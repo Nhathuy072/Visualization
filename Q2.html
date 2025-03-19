@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doanh số bán hàng theo Nhóm hàng</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .bar { fill-opacity: 0.8; }
+        .bar:hover { fill-opacity: 1; }
+        .axis-label { font-size: 14px; }
+        .legend rect { stroke-width: 1; stroke: #000; }
+    </style>
+</head>
+<body>
+    <h2>Doanh số bán hàng theo Nhóm hàng</h2>
+    <svg width="900" height="600"></svg>
+
+    <script>
+        d3.csv("data_ggsheet - data.csv").then(function(data) {
+            // Chuyển đổi dữ liệu sang số
+            data.forEach(d => {
+                d["Thành tiền"] = +d["Thành tiền"];
+                d["Nhóm hàng"] = `[${d["Mã nhóm hàng"]}] ` + d["Tên nhóm hàng"];
+            });
+
+            // Tổng hợp theo nhóm hàng
+            let summary = d3.rollup(
+                data,
+                v => d3.sum(v, d => d["Thành tiền"]),
+                d => d["Nhóm hàng"]
+            );
+
+            let processedData = Array.from(summary, ([nhom, total]) => {
+                return { "Nhóm hàng": nhom, "Thành tiền": total };
+            }).sort((a, b) => b["Thành tiền"] - a["Thành tiền"]);
+
+            // Cấu hình SVG
+            const margin = { top: 40, right: 200, bottom: 50, left: 250 };
+            const width = 800 - margin.left - margin.right;
+            const height = 600 - margin.top - margin.bottom;
+            const svg = d3.select("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo
+            const x = d3.scaleLinear()
+                .domain([0, d3.max(processedData, d => d["Thành tiền"])])
+                .range([0, width]);
+
+            const y = d3.scaleBand()
+                .domain(processedData.map(d => d["Nhóm hàng"]))
+                .range([0, height])
+                .padding(0.2);
+
+            const color = d3.scaleOrdinal(d3.schemeTableau10)
+                .domain(processedData.map(d => d["Nhóm hàng"]));
+
+            // Vẽ trục
+            svg.append("g")
+                .call(d3.axisLeft(y).tickSize(0).tickPadding(5));
+            
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x).tickFormat(d => `${d / 1e6}M`));
+
+            // Vẽ thanh bar
+            svg.selectAll(".bar")
+                .data(processedData)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("y", d => y(d["Nhóm hàng"]))
+                .attr("height", y.bandwidth())
+                .attr("x", 0)
+                .attr("width", d => x(d["Thành tiền"]))
+                .attr("fill", d => color(d["Nhóm hàng"]));
+
+            // Hiển thị giá trị trên thanh bar
+            svg.selectAll(".label")
+                .data(processedData)
+                .enter().append("text")
+                .attr("class", "label")
+                .attr("x", d => x(d["Thành tiền"]) + 5)
+                .attr("y", d => y(d["Nhóm hàng"]) + y.bandwidth() / 2)
+                .attr("dy", "0.35em")
+                .text(d => `${(d["Thành tiền"] / 1e6).toFixed(0)}M`)
+                .style("font-size", "12px");
+
+            // Thêm chú giải màu bên phải biểu đồ
+            const legend = svg.append("g")
+                .attr("transform", `translate(${width + 50}, 0)`);
+
+            const legendItems = Array.from(new Set(processedData.map(d => d["Nhóm hàng"])));
+
+            legend.selectAll(".legend-item")
+                .data(legendItems)
+                .enter().append("g")
+                .attr("class", "legend-item")
+                .attr("transform", (d, i) => `translate(0, ${i * 25})`)
+                .each(function(d) {
+                    d3.select(this).append("rect")
+                        .attr("width", 18)
+                        .attr("height", 18)
+                        .attr("fill", color(d));
+                    
+                    d3.select(this).append("text")
+                        .attr("x", 25)
+                        .attr("y", 13)
+                        .text(d)
+                        .style("font-size", "14px");
+                });
+        }).catch(error => console.error("Lỗi tải CSV:", error));
+    </script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doanh số trung bình theo Ngày trong tháng</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .bar { fill-opacity: 0.8; }
+        .bar:hover { fill-opacity: 1; }
+        .axis-label { font-size: 14px; }
+        .legend rect { stroke-width: 1; stroke: #000; }
+    </style>
+</head>
+<body>
+    <h2>Doanh số trung bình theo Ngày trong tháng</h2>
+    <svg width="1000" height="500"></svg>
+
+    <script>
+        d3.csv("data_ggsheet - data.csv").then(function(data) {
+            // Chuyển đổi dữ liệu
+            data.forEach(d => {
+                d["Thời gian tạo đơn"] = new Date(d["Thời gian tạo đơn"]);
+                d["Thành tiền"] = +d["Thành tiền"];
+                d["Tháng"] = d3.timeFormat("%Y-%m")(d["Thời gian tạo đơn"]);
+                d["Ngày trong tháng"] = d["Thời gian tạo đơn"].getDate();
+            });
+
+            // Tổng hợp doanh thu theo tháng và ngày trong tháng
+            let summary = d3.rollup(
+                data,
+                v => d3.sum(v, d => d["Thành tiền"]),
+                d => d["Tháng"],
+                d => d["Ngày trong tháng"]
+            );
+
+            let monthlyData = Array.from(summary, ([month, days]) =>
+                Array.from(days, ([day, total]) => ({ "Tháng": month, "Ngày trong tháng": day, "Thành tiền": total }))
+            ).flat();
+
+            // Tính trung bình doanh số theo ngày trong tháng
+            let avgData = d3.rollup(
+                monthlyData,
+                v => d3.mean(v, d => d["Thành tiền"]),
+                d => d["Ngày trong tháng"]
+            );
+
+            let processedData = Array.from(avgData, ([day, total]) => ({ "Ngày trong tháng": `Ngày ${String(day).padStart(2, '0')}`, "Thành tiền": total }));
+
+            // Sắp xếp theo ngày trong tháng
+            processedData.sort((a, b) => parseInt(a["Ngày trong tháng"].split(" ")[1]) - parseInt(b["Ngày trong tháng"].split(" ")[1]));
+
+            // Cấu hình SVG
+            const margin = { top: 40, right: 200, bottom: 50, left: 100 };
+            const width = 1000 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+            const svg = d3.select("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo
+            const x = d3.scaleBand()
+                .domain(processedData.map(d => d["Ngày trong tháng"]))
+                .range([0, width])
+                .padding(0.2);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(processedData, d => d["Thành tiền"])]).nice()
+                .range([height, 0]);
+
+            const color = d3.scaleOrdinal(d3.schemeTableau10);
+
+            // Vẽ trục
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x).tickValues(x.domain().filter((d, i) => i % 2 === 0))) // Hiển thị cách ngày
+                .selectAll("text")
+                .style("text-anchor", "end")
+                .attr("dx", "-0.8em")
+                .attr("dy", "0.15em")
+                .attr("transform", "rotate(-45)");
+            
+            svg.append("g")
+                .call(d3.axisLeft(y).tickFormat(d => `${d / 1e6}M`));
+
+            // Vẽ thanh bar
+            svg.selectAll(".bar")
+                .data(processedData)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => x(d["Ngày trong tháng"]))
+                .attr("y", d => y(d["Thành tiền"]))
+                .attr("width", x.bandwidth())
+                .attr("height", d => height - y(d["Thành tiền"]))
+                .attr("fill", d => color(d["Ngày trong tháng"]));
+        }).catch(error => console.error("Lỗi tải CSV:", error));
+    </script>
+</body>
+</html>

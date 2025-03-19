@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doanh số trung bình theo Khung giờ</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .bar { fill-opacity: 0.8; }
+        .bar:hover { fill-opacity: 1; }
+        .axis-label { font-size: 14px; }
+        .legend rect { stroke-width: 1; stroke: #000; }
+        text { font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h2>Doanh số trung bình theo Khung giờ</h2>
+    <svg width="1000" height="500"></svg>
+
+    <script>
+        d3.csv("data_ggsheet - data.csv").then(function(data) {
+            data.forEach(d => {
+                d["Thời gian tạo đơn"] = new Date(d["Thời gian tạo đơn"]);
+                d["Thành tiền"] = +d["Thành tiền"];
+                d["Khung giờ"] = d["Thời gian tạo đơn"].getHours() + ":00-" + d["Thời gian tạo đơn"].getHours() + ":59";
+                d["Ngày"] = d3.timeFormat("%Y-%m-%d")(d["Thời gian tạo đơn"]);
+            });
+
+            let summary = d3.rollup(
+                data,
+                v => d3.sum(v, d => d["Thành tiền"]),
+                d => d["Ngày"],
+                d => d["Khung giờ"]
+            );
+
+            let hourlyData = Array.from(summary, ([day, hours]) =>
+                Array.from(hours, ([hour, total]) => ({ "Ngày": day, "Khung giờ": hour, "Thành tiền": total })))
+                .flat();
+
+            let daysCount = d3.rollup(
+                hourlyData,
+                v => v.length,
+                d => d["Khung giờ"]
+            );
+
+            let totalSales = d3.rollup(
+                hourlyData,
+                v => d3.sum(v, d => d["Thành tiền"]),
+                d => d["Khung giờ"]
+            );
+
+            let processedData = Array.from(totalSales, ([hour, total]) => ({ 
+                "Khung giờ": hour, 
+                "Doanh số trung bình": total / daysCount.get(hour) 
+            }));
+
+            processedData.sort((a, b) => parseInt(a["Khung giờ"]) - parseInt(b["Khung giờ"]));
+
+            const margin = { top: 40, right: 200, bottom: 50, left: 100 };
+            const width = 1000 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+            const svg = d3.select("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            const x = d3.scaleBand()
+                .domain(processedData.map(d => d["Khung giờ"]))
+                .range([0, width])
+                .padding(0.2);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(processedData, d => d["Doanh số trung bình"])]).nice()
+                .range([height, 0]);
+
+            const color = d3.scaleOrdinal(d3.schemeTableau10).domain(processedData.map(d => d["Khung giờ"]));
+
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x));
+            
+            svg.append("g")
+                .call(d3.axisLeft(y).tickFormat(d => `${d / 1e3}K`));
+
+            // Vẽ các cột
+            svg.selectAll(".bar")
+                .data(processedData)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => x(d["Khung giờ"]))
+                .attr("y", d => y(d["Doanh số trung bình"]))
+                .attr("width", x.bandwidth())
+                .attr("height", d => height - y(d["Doanh số trung bình"]))
+                .attr("fill", d => color(d["Khung giờ"]));
+
+            // Hiển thị giá trị trên cột
+            svg.selectAll(".text")
+                .data(processedData)
+                .enter().append("text")
+                .attr("x", d => x(d["Khung giờ"]) + x.bandwidth() / 2)
+                .attr("y", d => y(d["Doanh số trung bình"]) - 5)
+                .attr("text-anchor", "middle")
+                .style("fill", "black")
+                .text(d => `${(d["Doanh số trung bình"] / 1e3).toFixed(1)}K`);
+
+            // Thêm legend
+            const legend = svg.append("g")
+                .attr("transform", `translate(${width + 20}, 0)`);
+
+            processedData.forEach((d, i) => {
+                let legendRow = legend.append("g")
+                    .attr("transform", `translate(0, ${i * 20})`);
+
+                legendRow.append("rect")
+                    .attr("width", 15)
+                    .attr("height", 15)
+                    .attr("fill", color(d["Khung giờ"]));
+
+                legendRow.append("text")
+                    .attr("x", 20)
+                    .attr("y", 12)
+                    .text(d["Khung giờ"])
+                    .style("font-size", "12px")
+                    .attr("alignment-baseline", "middle");
+            });
+
+            svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", -10)
+                .attr("text-anchor", "middle")
+                .style("font-size", "16px")
+                .text("Doanh số trung bình theo Khung giờ");
+        }).catch(error => console.error("Lỗi tải CSV:", error));
+    </script>
+</body>
+</html>

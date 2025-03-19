@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phân phối lượt mua hàng</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; }
+    .chart { margin: 40px auto; }
+    .axis text { font-size: 12px; }
+    .axis line, .axis path { stroke: #000; }
+    .tooltip {
+      position: absolute;
+      background: rgba(0,0,0,0.75);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 5px;
+      display: none;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Phân phối lượt mua hàng</h2>
+  <div class="chart" id="chart"></div>
+  <div class="tooltip" id="tooltip"></div>
+  
+  <script>
+    // Hàm tính kernel density estimate theo Gaussian
+    function kernelDensityEstimator(kernel, X) {
+      return function(V) {
+        return X.map(function(x) {
+          return [x, d3.mean(V, function(v) { return kernel(x - v); })];
+        });
+      };
+    }
+    function kernelEpanechnikov(k) {
+      return function(v) {
+        v = v / k;
+        return Math.abs(v) <= 1 ? 0.75 * (1 - v * v) / k : 0;
+      };
+    }
+    // Hoặc dùng hàm kernel Gaussian:
+    function kernelGaussian(scale) {
+      return function(v) {
+        return (1 / (Math.sqrt(2 * Math.PI) * scale)) * Math.exp(-0.5 * Math.pow(v / scale, 2));
+      };
+    }
+
+    // Đường dẫn file CSV
+    d3.csv("data_ggsheet - data.csv").then(function(data) {
+      // Nhóm theo "Mã khách hàng" và tính số đơn hàng duy nhất cho mỗi khách hàng
+      const freqMap = d3.rollup(
+        data,
+        v => new Set(v.map(d => d["Mã đơn hàng"])).size,
+        d => d["Mã khách hàng"]
+      );
+      const freq = Array.from(freqMap, ([maKh, tansu]) => ({ "Mã khách hàng": maKh, "Tần suất": tansu }));
+      
+      // Thiết lập kích thước của SVG
+      const margin = { top: 20, right: 30, bottom: 50, left: 50 },
+            width = 800 - margin.left - margin.right,
+            height = 400 - margin.top - margin.bottom;
+      
+      const svg = d3.select("#chart")
+                    .append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+      
+      // Lấy dữ liệu tần suất
+      const tansuData = freq.map(d => d["Tần suất"]);
+
+      // Tạo histogram bins
+      const x = d3.scaleLinear()
+                  .domain([0, d3.max(tansuData)])
+                  .nice()
+                  .range([0, width]);
+      
+      const histogram = d3.histogram()
+                          .domain(x.domain())
+                          .thresholds(x.ticks(20));
+      
+      const bins = histogram(tansuData);
+
+      // Thang đo trục Y
+      const y = d3.scaleLinear()
+                  .domain([0, d3.max(bins, d => d.length)])
+                  .nice()
+                  .range([height, 0]);
+
+      // Vẽ histogram
+      svg.append("g")
+         .selectAll("rect")
+         .data(bins)
+         .enter().append("rect")
+         .attr("x", d => x(d.x0) + 1)
+         .attr("y", d => y(d.length))
+         .attr("width", d => x(d.x1) - x(d.x0) - 1)
+         .attr("height", d => height - y(d.length))
+         .attr("fill", "#69b3a2");
+
+      // Vẽ trục X và Y
+      svg.append("g")
+         .attr("transform", `translate(0,${height})`)
+         .call(d3.axisBottom(x).ticks(10));
+      
+      svg.append("g")
+         .call(d3.axisLeft(y).tickFormat(d => d >= 1000 ? d/1000 + "K" : d));
+
+      // Tính KDE
+      // Tạo mảng giá trị x để ước lượng mật độ, dùng 40 điểm
+      const xTicks = x.ticks(40);
+      // Dùng kernel Gaussian với scale (bandwidth) là 1.5, bạn có thể điều chỉnh nếu cần
+      const kde = kernelDensityEstimator(kernelGaussian(1.5), xTicks);
+      const density = kde(tansuData);
+      
+      // Thang Y cho đường KDE (trùng với y của histogram, nhưng cần quy đổi theo giá trị mật độ)
+      const yDensity = d3.scaleLinear()
+                         .domain([0, d3.max(density, d => d[1])])
+                         .range([height, 0]);
+
+      // Vẽ đường KDE
+      svg.append("path")
+         .datum(density)
+         .attr("fill", "none")
+         .attr("stroke", "steelblue")
+         .attr("stroke-width", 2)
+         .attr("stroke-linejoin", "round")
+         .attr("d", d3.line()
+                      .curve(d3.curveBasis)
+                      .x(d => x(d[0]))
+                      .y(d => yDensity(d[1])));
+      
+      // Thêm tiêu đề
+      svg.append("text")
+         .attr("x", width/2)
+         .attr("y", -5)
+         .attr("text-anchor", "middle")
+         .style("font-size", "16px")
+         .text("Phân phối lượt mua hàng");
+    }).catch(error => console.error("Lỗi tải CSV:", error));
+  </script>
+</body>
+</html>
